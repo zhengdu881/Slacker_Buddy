@@ -23,7 +23,8 @@ def load_data():
         "total_valid_punches": 0,
         "suspect_times": [],
         "today": {"date": today_str, "count": 0},
-        "history": {}
+        "history": {},
+        "punched_dates": []  # 记录打卡的日期
     }
 
     if not os.path.exists(DATA_FILE): return default_data
@@ -49,6 +50,9 @@ def load_data():
 
     if data.get("today", {}).get("date") != today_str:
         data["today"] = {"date": today_str, "count": 0}
+    
+    # 确保 punched_dates 字段存在
+    data.setdefault("punched_dates", [])
         
     return data
 
@@ -96,6 +100,29 @@ def calculate_weekend_punches_needed(data):
     
     return weekend_needed if weekend_needed > 0 else 0
 
+def get_absent_workdays(data):
+    """获取当月缺勤的工作日列表"""
+    now = datetime.now()
+    year = now.year
+    month = now.month
+    today = now.day
+    
+    punched_dates_set = set(data.get("punched_dates", []))
+    absent_dates = []
+    
+    # 遍历本月从1号到今天（不包括今天）
+    for day in range(1, today):
+        date = datetime(year, month, day)
+        # 只检查工作日（周一到周五，0-4）
+        if date.weekday() < 5:
+            date_str = date.strftime("%Y-%m-%d")
+            if date_str not in punched_dates_set:
+                # 格式化为 MM-DD（去掉年份和前导零）
+                display_date = date.strftime("%m-%d").lstrip("0").replace("-0", "-")
+                absent_dates.append(display_date)
+    
+    return absent_dates
+
 def calculate_allowed_absences(data):
     """计算要达到上限最多还可以缺勤多少次"""
     total_punches = data["total_valid_punches"]
@@ -130,6 +157,12 @@ def cmd_punch_strict():
 
     data["total_valid_punches"] += 1
     data["today"]["count"] += 1
+    
+    # 记录打卡日期
+    today_str = data["today"]["date"]
+    if today_str not in data["punched_dates"]:
+        data["punched_dates"].append(today_str)
+    
     save_data(data)
     print(f"\033[92m[STRICT] +{PRICE} RMB.\033[0m")
     
@@ -231,6 +264,14 @@ def cmd_stats(data=None):
             print(f"Weekend punches needed (if workdays full): \033[92m0 (workdays enough)\033[0m")
     else:
         print(f"Weekend punches needed (if workdays full): \033[92mN/A (cap reached)\033[0m")
+    
+    # 显示缺勤日期
+    absent_dates = get_absent_workdays(data)
+    if absent_dates:
+        print(f"\nAbsent workdays: \033[91m{', '.join(absent_dates)}\033[0m")
+        print(f"Total absent days: \033[91m{len(absent_dates)}\033[0m")
+    else:
+        print(f"\nAbsent workdays: \033[92mNone (perfect attendance so far!)\033[0m")
 
 def cmd_history():
     data = load_data()
